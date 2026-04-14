@@ -8,7 +8,25 @@ from rich.console import Console
 from rich.table import Table
 from scholarly import scholarly
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# Setup logging with both console and file handlers
+log_format = "%(asctime)s %(levelname)s %(message)s"
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter(log_format))
+logger.addHandler(console_handler)
+
+# File handler
+log_dir = Path("logs/scholar_metric_bot")
+log_dir.mkdir(parents=True, exist_ok=True)
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+file_handler = logging.FileHandler(log_dir / f"{timestamp}.log")
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter(log_format))
+logger.addHandler(file_handler)
 
 IN_CSV     = Path("data/scholars.csv")
 OUT_CSV    = Path("data/out/scholars_metrics.csv")

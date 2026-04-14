@@ -48,16 +48,22 @@ def get_scholar_metrics(scholar_id: str) -> dict:
 
 
 def load_cached(path: Path) -> dict[str, dict]:
-    """Return already-fetched rows keyed by name so we can skip them.
-    Returns empty dict if file doesn't exist or is older than MAX_AGE."""
+    """Return already-fetched rows keyed by name."""
     if not path.exists():
-        return {}
-    age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
-    if age > MAX_AGE:
-        logging.info("Cache expired (age: %s), re-fetching all.", age)
         return {}
     with open(path, newline='', encoding='utf-8') as f:
         return {row['name']: row for row in csv.DictReader(f)}
+
+
+def is_cache_expired(path: Path) -> bool:
+    """Return True if cache file is older than MAX_AGE."""
+    if not path.exists():
+        return True
+    age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+    if age > MAX_AGE:
+        logging.info("Cache expired (age: %s), re-fetching all.", age)
+        return True
+    return False
 
 
 def append_row(path: Path, row: dict) -> None:
@@ -165,8 +171,9 @@ def post_results(results: list[dict], cache: dict[str, dict]) -> None:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    cache   = load_cached(OUT_CSV)
-    results = []
+    cache           = load_cached(OUT_CSV)  # Always load for change detection
+    cache_expired   = is_cache_expired(OUT_CSV)
+    results         = []
 
     with open(IN_CSV, newline='', encoding='utf-8') as f:
         rows = list(csv.DictReader(f))
@@ -174,7 +181,7 @@ def main() -> None:
     for i, row in enumerate(rows, 1):
         name, scholar_id = row['name'], row['scholar_id']
 
-        if name in cache:
+        if name in cache and not cache_expired:
             logging.info("[%d/%d] skipping %s (cached)", i, len(rows), name)
             entry = {k: int(v) if k != 'name' else v for k, v in cache[name].items()}
         else:

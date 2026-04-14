@@ -81,3 +81,33 @@ Use your virtual environment and run:
 python /home/muray/Code/Research/etc/timed-automation-scripts/jobs/scholar_metric_bot.py
 ```
 
+### Running the scholar job via cron
+
+To automate scholar metrics collection, add a cron entry that activates the virtual environment and runs the job.
+
+1. Identify your virtual environment path (example: `/path/to/venv`)
+
+2. Edit your crontab:
+
+```bash
+crontab -e
+```
+
+3. Add a line for your desired schedule. Example: daily at 9 AM:
+
+```cron
+0 9 * * * source /path/to/venv/bin/activate && cd /home/muray/Code/Research/etc/timed-automation-scripts && python jobs/scholar_metric_bot.py
+```
+
+**Important notes:**
+- Replace `/path/to/venv` with the actual path to your Python virtual environment
+- The job will log to both console and `logs/scholar_metric_bot/<timestamp>.log`
+- Ensure the working directory is set correctly with `cd` command before running the job
+- The script expects input from `data/scholars.csv` and outputs to `data/out/scholars_metrics.csv`
+
+4. Verify the cron entry was added:
+
+```bash
+crontab -l
+```
+

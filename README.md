@@ -75,17 +75,20 @@ git -C /home/muray/Code/Research/etc/timed-automation-scripts branch --set-upstr
 
 ## Running the scholar job manually
 
-Use your virtual environment and run:
+From the repository root, either activate your virtual environment first or call its Python interpreter directly.
 
 ```bash
-python /home/muray/Code/Research/etc/timed-automation-scripts/jobs/scholar_metric_bot.py
+cd /home/muray/Code/Research/etc/timed-automation-scripts
+/path/to/venv/bin/python jobs/scholar_metric_bot.py
 ```
+
+If you already activated the virtual environment in your shell, `python jobs/scholar_metric_bot.py` works as well.
 
 ### Running the scholar job via cron
 
-To automate scholar metrics collection, add a cron entry that activates the virtual environment and runs the job.
+Cron runs with a very small environment, so use absolute paths and prefer the virtual environment's Python executable directly.
 
-1. Identify your virtual environment path (example: `/path/to/venv`)
+1. Identify your virtual environment path (example: `/path/to/venv`).
 
 2. Edit your crontab:
 
@@ -96,14 +99,21 @@ crontab -e
 3. Add a line for your desired schedule. Example: daily at 9 AM:
 
 ```cron
-0 9 * * * source /path/to/venv/bin/activate && cd /home/muray/Code/Research/etc/timed-automation-scripts && python jobs/scholar_metric_bot.py
+0 9 * * * cd /home/muray/Code/Research/etc/timed-automation-scripts && /path/to/venv/bin/python jobs/scholar_metric_bot.py
+```
+
+If you explicitly want to activate the environment first, run the command through the matching shell instead of relying on cron's default `/bin/sh`:
+
+```cron
+0 9 * * * /bin/zsh -lc 'source /path/to/venv/bin/activate && cd /home/muray/Code/Research/etc/timed-automation-scripts && python jobs/scholar_metric_bot.py'
 ```
 
 **Important notes:**
-- Replace `/path/to/venv` with the actual path to your Python virtual environment
-- The job will log to both console and `logs/scholar_metric_bot/<timestamp>.log`
-- Ensure the working directory is set correctly with `cd` command before running the job
-- The script expects input from `data/scholars.csv` and outputs to `data/out/scholars_metrics.csv`
+- Replace `/path/to/venv` with the actual path to your Python virtual environment.
+- Every run writes the same CLI output to `logs/scholar_metric_bot/<timestamp>.log` in addition to the terminal/cron output.
+- Running with `cd /home/muray/Code/Research/etc/timed-automation-scripts` keeps imports and relative job paths predictable.
+- The script reads `data/scholars.csv` and stores the latest snapshot in `data/out/scholars_metrics.csv`.
+- Cron usually does not load your interactive shell profile, so do not rely on aliases or shell-initialized environment variables unless you load them yourself.
 
 4. Verify the cron entry was added:
 

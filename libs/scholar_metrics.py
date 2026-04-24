@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import csv
+import html
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
+from urllib.parse import quote
 
 import requests
 from rich.console import Console
@@ -131,7 +133,9 @@ def format_fact_value(entry: dict, previous: dict[str, str] | None) -> str:
 def format_fact_name(name: str, scholar_id: str | None) -> str:
     if not scholar_id:
         return name
-    return f"[{name}](https://scholar.google.com/citations?user={scholar_id})"
+    safe_name = html.escape(name)
+    safe_scholar_id = quote(scholar_id, safe="")
+    return f"<a href=\"https://scholar.google.com/citations?user={safe_scholar_id}\">{safe_name}</a>"
 
 
 def create_table_from_results(results: list[dict], title: str, console: Console) -> None:

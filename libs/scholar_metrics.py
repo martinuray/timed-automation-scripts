@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import configparser
 import csv
 import html
 import logging
@@ -16,14 +17,9 @@ from rich.table import Table
 REPO_ROOT = Path(__file__).resolve().parents[1]
 IN_CSV = REPO_ROOT / "data" / "scholars.csv"
 WATCHLIST_CSV = REPO_ROOT / "data" / "scholars_watchlist.csv"
+SCHOLAR_METRICS_CONFIG_PATH = REPO_ROOT / "data" / "scholar_metrics.conf"
 OUT_CSV = REPO_ROOT / "data" / "out" / "scholars_metrics.csv"
 OUT_FIELDS = ["name", "citation_count", "citation_5_count", "h_index", "h5_index"]
-POST_URL = (
-    "https://defaultccebdfa5e6fe4a0aae39063ff11c9d.c4.environment.api.powerplatform.com:443"
-    "/powerautomate/automations/direct/workflows/8a66ae6a8de345d28e33c9d84e3f72cd"
-    "/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0"
-    "&sig=BTzoAac16DT0QudEWfT4mEF8OCju6dIJBTbBNsfb9As"
-)
 MAX_AGE = timedelta(hours=18, minutes=0)
 
 
@@ -71,6 +67,16 @@ def load_watchlist(path: Path) -> Watchlist:
                 watched_names.add(name)
 
     return watched_ids, watched_names
+
+
+def load_post_url_from_config(config_path: Path = SCHOLAR_METRICS_CONFIG_PATH) -> str | None:
+    if not config_path.exists():
+        return None
+
+    config = configparser.RawConfigParser()
+    config.read(config_path)
+    post_url = config.get("WEBHOOK", "post_url", fallback="").strip()
+    return post_url or None
 
 
 def save_snapshot(path: Path, results: list[dict]) -> None:
@@ -260,16 +266,18 @@ class ScholarMetricsBot:
         self,
         input_csv: Path = IN_CSV,
         watchlist_csv: Path = WATCHLIST_CSV,
+        config_path: Path = SCHOLAR_METRICS_CONFIG_PATH,
         output_csv: Path = OUT_CSV,
-        post_url: str = POST_URL,
+        post_url: str | None = None,
         max_age: timedelta = MAX_AGE,
         fetcher: MetricsFetcher = fetch_scholar_metrics,
         console_factory: Callable[[], Console] = Console,
     ) -> None:
         self.input_csv = input_csv
         self.watchlist_csv = watchlist_csv
+        self.config_path = config_path
         self.output_csv = output_csv
-        self.post_url = post_url
+        self.post_url = post_url or load_post_url_from_config(config_path)
         self.max_age = max_age
         self.fetcher = fetcher
         self.console_factory = console_factory
@@ -315,6 +323,10 @@ class ScholarMetricsBot:
     def post_results(
         self, results: list[dict], baseline_snapshot: Snapshot, overtakes: list[str]
     ) -> None:
+        if not self.post_url:
+            logging.warning("No webhook URL configured, skipping POST.")
+            return
+
         facts = [
             {
                 "name": format_fact_name(entry["name"], entry.get("scholar_id")),

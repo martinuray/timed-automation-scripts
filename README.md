@@ -113,6 +113,9 @@ If you explicitly want to activate the environment first, run the command throug
 - Every run writes the same CLI output to `logs/scholar_metric_bot/<timestamp>.log` in addition to the terminal/cron output.
 - Running with `cd /home/muray/Code/Research/etc/timed-automation-scripts` keeps imports and relative job paths predictable.
 - The script reads `data/scholars.csv` and stores the latest snapshot in `data/out/scholars_metrics.csv`.
+- Configure the webhook in a local `data/scholar_metrics.conf` (copy `data/scholar_metrics.example.conf` and set `WEBHOOK.post_url`); only the example file is tracked in git.
+- Optional overtake alerts can be configured via `data/scholars_watchlist.csv` (same columns as `data/scholars.csv`, usually only `name` or `scholar_id` are needed).
+- If a watched scholar overtakes another scholar in citation ranking compared to the stored snapshot, an additional overtake section is added to the posted message.
 - Cron usually does not load your interactive shell profile, so do not rely on aliases or shell-initialized environment variables unless you load them yourself.
 
 4. Verify the cron entry was added:

@@ -29,7 +29,11 @@ Watchlist = tuple[set[str], set[str]]
 
 
 def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
-    from scholarly import scholarly
+    from scholarly import scholarly, ProxyGenerator
+
+    pg = ProxyGenerator()
+    pg.FreeProxies()  # or pg.ScraperAPI("your_key") for reliability
+    scholarly.use_proxy(pg)
 
     author = scholarly.search_author_id(scholar_id)
     author = scholarly.fill(author, sections=["indices", "counts"])

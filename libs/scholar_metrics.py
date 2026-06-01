@@ -4,9 +4,12 @@ import configparser
 import csv
 import html
 import logging
+import os
+import random
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, cast
 from urllib.parse import quote
 
 import requests
@@ -18,7 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 IN_CSV = REPO_ROOT / "data" / "scholars.csv"
 WATCHLIST_CSV = REPO_ROOT / "data" / "scholars_watchlist.csv"
 SCHOLAR_METRICS_CONFIG_PATH = REPO_ROOT / "data" / "scholar_metrics.conf"
-OUT_CSV = REPO_ROOT / "data" / "out" / "scholars_metrics.csv"
+CACHE_BASE = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+OUT_CSV = CACHE_BASE / "timed-automation-scripts" / "scholar_metrics" / "scholars_metrics.csv"
 OUT_FIELDS = ["name", "citation_count", "citation_5_count", "h_index", "h5_index"]
 MAX_AGE = timedelta(hours=18, minutes=0)
 
@@ -28,20 +32,109 @@ MetricsFetcher = Callable[[str], dict[str, int]]
 Watchlist = tuple[set[str], set[str]]
 
 
+def run_with_retry(action: str, operation: Callable[[], Any], retries: int = 3) -> Any:
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return operation()
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if attempt == retries:
+                break
+            delay = min(12.0, (2 ** (attempt - 1)) + random.uniform(0.2, 0.8))
+            logging.warning(
+                "%s failed (%d/%d): %s; retrying in %.1fs",
+                action,
+                attempt,
+                retries,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"{action} failed without an exception")
+
+
 def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
-    from scholarly import scholarly, ProxyGenerator
+    from scholarly import scholarly
 
-    pg = ProxyGenerator()
-    pg.FreeProxies()  # or pg.ScraperAPI("your_key") for reliability
-    scholarly.use_proxy(pg)
+    try:
+        from scholarly import ProxyGenerator
+        pg = ProxyGenerator()
+        if pg.FreeProxies():  # or pg.ScraperAPI("your_key") for reliability
+            scholarly.use_proxy(pg)
+            logging.info("Proxy setup successful.")
+        else:
+            logging.info("Proxy setup unavailable, continuing without proxy.")
+    except Exception as exc:
+        logging.debug("Proxy setup failed, continuing without proxy: %s", exc)
 
-    author = scholarly.search_author_id(scholar_id)
-    author = scholarly.fill(author, sections=["indices", "counts"])
+    author = cast(dict[str, Any], run_with_retry(
+        "Author lookup",
+        lambda: scholarly.search_author_id(scholar_id),
+    ))
+    author = cast(dict[str, Any], run_with_retry(
+        "Author fill",
+        lambda: scholarly.fill(author, sections=["indices", "counts", "publications"]),
+    ))
+
+    self_citations = 0
+    cleaned_cite_list = []
+
+    for pub in author.get('publications', []):
+        break # till strategy on how to handle huge requests
+        try:
+            pub_filled = cast(dict[str, Any], run_with_retry("Publication fill", lambda: scholarly.fill(pub), retries=2))
+        except Exception as exc:
+            logging.debug("Skipping publication fill failure (scholar_id=%s): %s", scholar_id, exc)
+            cleaned_cite_list.append(0)
+            continue
+
+        cits = 0
+
+        # Some publications returned by Google Scholar do not expose citedby_url.
+        if not pub_filled.get('citedby_url'):
+            logging.debug(
+                "Skipping citedby expansion for publication without citedby_url (scholar_id=%s)",
+                scholar_id,
+            )
+            cleaned_cite_list.append(cits)
+            continue
+
+        try:
+            for citing_paper in scholarly.citedby(pub_filled):
+                # Check author overlap
+                citing_author_ids = citing_paper.get('author_id', [])
+                if author['scholar_id'] in citing_author_ids:
+                    self_citations += 1
+                else:
+                    cits += 1
+        except KeyError as exc:
+            logging.debug(
+                "Skipping citedby expansion for publication due to missing key %s (scholar_id=%s)",
+                exc,
+                scholar_id,
+            )
+        except Exception as exc:
+            logging.debug(
+                "Skipping citedby expansion after fetch error (scholar_id=%s): %s",
+                scholar_id,
+                exc,
+            )
+
+        cleaned_cite_list.append(cits)
+
     return {
         "citation_count": author.get("citedby", 0),
         "citation_5_count": author.get("citedby5y", 0),
         "h_index": author.get("hindex", 0),
         "h5_index": author.get("hindex5y", 0),
+        'self_citations': self_citations,
+        'cleaned_h_index': h_index(cleaned_cite_list),
     }
 
 
@@ -245,6 +338,16 @@ def detect_overtakes(
     return events
 
 
+def h_index(citations: list[int]) -> int:
+    citations = sorted(citations, reverse=True)
+    h = 0
+    for i, c in enumerate(citations):
+        if c >= i + 1:
+            h = i + 1
+        else:
+            break
+    return h
+
 def create_table_from_results(results: list[dict], title: str, console: Console) -> None:
     console.print(f"\n{title}", style="bold magenta")
     table = Table(show_header=True, header_style="bold magenta")
@@ -253,6 +356,8 @@ def create_table_from_results(results: list[dict], title: str, console: Console)
     table.add_column("Citations (5 years)", justify="right")
     table.add_column("H-Index", justify="right")
     table.add_column("H5-Index", justify="right")
+    table.add_column("Self-Citations", justify="right")
+    table.add_column("Cleaned H-Index", justify="right")
 
     for entry in results:
         table.add_row(
@@ -261,6 +366,8 @@ def create_table_from_results(results: list[dict], title: str, console: Console)
             str(entry.get("citation_5_count", 0)),
             str(entry.get("h_index", 0)),
             str(entry.get("h5_index", 0)),
+            str(entry.get("self_citations", 0)),
+            str(entry.get("cleaned_h_index", 0)),
         )
     console.print(table)
 
@@ -274,6 +381,7 @@ class ScholarMetricsBot:
         output_csv: Path = OUT_CSV,
         post_url: str | None = None,
         max_age: timedelta = MAX_AGE,
+        force_refresh: bool = False,
         fetcher: MetricsFetcher = fetch_scholar_metrics,
         console_factory: Callable[[], Console] = Console,
     ) -> None:
@@ -283,6 +391,7 @@ class ScholarMetricsBot:
         self.output_csv = output_csv
         self.post_url = post_url or load_post_url_from_config(config_path)
         self.max_age = max_age
+        self.force_refresh = force_refresh
         self.fetcher = fetcher
         self.console_factory = console_factory
 
@@ -292,7 +401,9 @@ class ScholarMetricsBot:
 
     def collect_results(self) -> tuple[list[dict], Snapshot, bool]:
         stored_snapshot = load_snapshot(self.output_csv)
-        snapshot_expired = is_snapshot_expired(self.output_csv, self.max_age)
+        snapshot_expired = self.force_refresh or is_snapshot_expired(self.output_csv, self.max_age)
+        if self.force_refresh:
+            logging.info("Force mode enabled, bypassing cache age and fetching all metrics.")
         results: list[dict] = []
         snapshot_needs_write = snapshot_expired or not self.output_csv.exists()
         authors = self.read_authors()

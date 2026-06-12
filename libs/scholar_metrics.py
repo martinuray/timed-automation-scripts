@@ -430,6 +430,8 @@ class ScholarMetricsBot:
         post_url: str | None = None,
         max_age: timedelta = MAX_AGE,
         force_refresh: bool = False,
+        force_cache: bool = False,
+        force_post: bool = False,
         fetcher: MetricsFetcher = fetch_scholar_metrics,
         console_factory: Callable[[], Console] = Console,
     ) -> None:
@@ -440,6 +442,8 @@ class ScholarMetricsBot:
         self.post_url = post_url or load_post_url_from_config(config_path)
         self.max_age = max_age
         self.force_refresh = force_refresh
+        self.force_cache = force_cache
+        self.force_post = force_post
         self.fetcher = fetcher
         self.console_factory = console_factory
 
@@ -448,21 +452,41 @@ class ScholarMetricsBot:
             return list(csv.DictReader(handle))
 
     def collect_results(self) -> tuple[list[dict], Snapshot, bool]:
+
+        fetching_possible = True
+
         stored_snapshot = load_snapshot(self.output_csv)
-        snapshot_expired = self.force_refresh or is_snapshot_expired(self.output_csv, self.max_age)
+        if self.force_refresh:
+            snapshot_expired = True
+        elif self.force_cache:
+            snapshot_expired = False
+        else:
+            snapshot_expired = is_snapshot_expired(self.output_csv, self.max_age)
+
         if self.force_refresh:
             logging.info("Force mode enabled, bypassing cache age and fetching all metrics.")
+        elif self.force_cache:
+            logging.info("Force cache mode enabled, using stored metrics even if cache age is expired.")
+
         results: list[dict] = []
-        snapshot_needs_write = snapshot_expired or not self.output_csv.exists()
+        snapshot_needs_write = (snapshot_expired or not self.output_csv.exists()) and not self.force_cache
         authors = self.read_authors()
 
         for index, row in enumerate(authors, start=1):
             name = row["name"]
             scholar_id = row["scholar_id"]
 
-            if name in stored_snapshot and not snapshot_expired:
-                logging.info("[%d/%d] skipping %s (cached)", index, len(authors), name)
+            if name in stored_snapshot and (self.force_cache or not snapshot_expired or not fetching_possible):
+                logging.info("[%d/%d] using cache for %s", index, len(authors), name)
                 entry = {**coerce_snapshot_entry(stored_snapshot[name]), "scholar_id": scholar_id}
+            elif self.force_cache:
+                logging.warning(
+                    "[%d/%d] no cached entry for %s; skipping in force-cache mode",
+                    index,
+                    len(authors),
+                    name,
+                )
+                continue
             else:
                 logging.info("[%d/%d] fetching %s …", index, len(authors), name)
                 try:
@@ -474,11 +498,12 @@ class ScholarMetricsBot:
                         entry = {**coerce_snapshot_entry(stored_snapshot[name]), "scholar_id": scholar_id}
                     else:
                         logging.error("  failed for %s: %s", name, exc)
-                        continue
+                    fetching_possible = False # to make it faster, when already in captcha mode.
+                    continue
 
             results.append(entry)
 
-        if {entry["name"] for entry in results} != set(stored_snapshot):
+        if not self.force_cache and {entry["name"] for entry in results} != set(stored_snapshot):
             snapshot_needs_write = True
 
         return results, stored_snapshot, snapshot_needs_write
@@ -549,6 +574,9 @@ class ScholarMetricsBot:
         results, stored_snapshot, snapshot_needs_write = self.collect_results()
         watchlist = load_watchlist(self.watchlist_csv)
 
+        if self.force_post:
+            logging.info("Force post mode enabled, posting even when no metric changes are detected.")
+
         if snapshot_needs_write:
             save_snapshot(self.output_csv, results)
 
@@ -559,8 +587,14 @@ class ScholarMetricsBot:
         if overtakes:
             logging.info("Detected %d watchlist overtake event(s).", len(overtakes))
 
-        if results_differ_from_snapshot(results, stored_snapshot) or overtakes:
-            logging.info("Changes detected, posting results.")
+        changes_detected = results_differ_from_snapshot(results, stored_snapshot)
+        should_post = changes_detected or bool(overtakes) or self.force_post
+
+        if should_post:
+            if self.force_post and not (changes_detected or overtakes):
+                logging.info("No changes detected, but force post is enabled; posting results.")
+            else:
+                logging.info("Changes detected, posting results.")
             self.post_results(ranked_results, stored_snapshot, overtakes)
         else:
             logging.info("No changes detected, skipping POST.")

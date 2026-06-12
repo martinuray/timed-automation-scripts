@@ -515,20 +515,12 @@ class ScholarMetricsBot:
             logging.warning("No webhook URL configured, skipping POST.")
             return
 
-        facts = [
-            {
-                "name": format_fact_name(entry["name"], entry.get("scholar_id")),
-                "value": format_fact_value(entry, baseline_snapshot.get(entry["name"])),
-            }
-            for entry in results
-        ]
-
         sections: list[dict] = [
             {
                 "activityTitle": "🎓 Scholar Metrics",
                 "activitySubtitle": f"Ranked by Citation Count — {len(results)} authors",
-                "facts": facts,
-                "markdown": True,
+                "text": build_metrics_html_table(results, baseline_snapshot),
+                "markdown": False,
             }
         ]
 

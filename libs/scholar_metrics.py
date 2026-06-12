@@ -23,7 +23,7 @@ WATCHLIST_CSV = REPO_ROOT / "data" / "scholars_watchlist.csv"
 SCHOLAR_METRICS_CONFIG_PATH = REPO_ROOT / "data" / "scholar_metrics.conf"
 CACHE_BASE = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
 OUT_CSV = CACHE_BASE / "timed-automation-scripts" / "scholar_metrics" / "scholars_metrics.csv"
-OUT_FIELDS = ["name", "citation_count", "citation_5_count", "h_index", "h5_index"]
+OUT_FIELDS = ["name", "num_pubs", "citation_count", "citation_5_count", "cites_current_year", "h_index", "h5_index"]
 MAX_AGE = timedelta(hours=18, minutes=0)
 
 
@@ -82,8 +82,15 @@ def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
         lambda: scholarly.fill(author, sections=["indices", "counts", "publications"]),
     ))
 
+    ## cites per year
+    cpy = author.get('cites_per_year', {})
+    cy = max(list(cpy.keys()))
+    cites_current_year = cpy.get(cy, 0)
+
     self_citations = 0
     cleaned_cite_list = []
+    publications = author.get('publications', [])
+    num_pubs = len(publications)
 
     for pub in author.get('publications', []):
         break # till strategy on how to handle huge requests
@@ -129,8 +136,10 @@ def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
         cleaned_cite_list.append(cits)
 
     return {
+        "num_pubs": num_pubs,
         "citation_count": author.get("citedby", 0),
         "citation_5_count": author.get("citedby5y", 0),
+        "cites_current_year": cites_current_year,
         "h_index": author.get("hindex", 0),
         "h5_index": author.get("hindex5y", 0),
         'self_citations': self_citations,
@@ -198,8 +207,10 @@ def is_snapshot_expired(path: Path, max_age: timedelta = MAX_AGE) -> bool:
 def coerce_snapshot_entry(row: dict[str, str]) -> dict[str, int | str]:
     return {
         "name": row["name"],
+        "num_pubs": int(row.get("num_pubs", 0) or 0),
         "citation_count": int(row.get("citation_count", 0) or 0),
         "citation_5_count": int(row.get("citation_5_count", 0) or 0),
+        "cites_current_year": int(row.get("cites_current_year", 0) or 0),
         "h_index": int(row.get("h_index", 0) or 0),
         "h5_index": int(row.get("h5_index", 0) or 0),
     }
@@ -236,23 +247,56 @@ def cached_int(cache_row: dict[str, str] | None, key: str) -> int | None:
 
 def format_metric_for_post(value: int, previous: int | None) -> str:
     if previous is None:
-        return f"**{value} (new)**"
+        return f"<strong>{value}</strong> <em>(new)</em>"
 
     delta = value - previous
     if delta == 0:
         return str(value)
 
     sign = "+" if delta > 0 else ""
-    return f"**{value} ({sign}{delta})**"
+    return f"<strong>{value}</strong> <em>({sign}{delta})</em>"
 
 
 def format_fact_value(entry: dict, previous: dict[str, str] | None) -> str:
     return (
+        f"#Pubs: {format_metric_for_post(entry['num_pubs'], cached_int(previous, 'num_pubs'))} | "
         f"Citations: {format_metric_for_post(entry['citation_count'], cached_int(previous, 'citation_count'))} | "
         f"Citations (5 years): {format_metric_for_post(entry['citation_5_count'], cached_int(previous, 'citation_5_count'))} | "
+        f"Citations (current year): {format_metric_for_post(entry['cites_current_year'], cached_int(previous, 'cites_current_year'))} | "
         f"H-Index: {format_metric_for_post(entry['h_index'], cached_int(previous, 'h_index'))} | "
         f"H5-Index: {format_metric_for_post(entry['h5_index'], cached_int(previous, 'h5_index'))}"
     )
+
+
+def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -> str:
+    header = (
+        "<table>"
+        "<thead><tr>"
+        "<th align=\"left\">Scholar</th>"
+        "<th align=\"right\">#</th>"
+        "<th align=\"right\">Citations</th>"
+        "<th align=\"right\">Citations (5y)</th>"
+        "<th align=\"right\">Citations (current y)</th>"
+        "<th align=\"right\">H-Index</th>"
+        "<th align=\"right\">H5-Index</th>"
+        "</tr></thead><tbody>"
+    )
+    rows: list[str] = []
+    for entry in results:
+        previous = baseline_snapshot.get(entry["name"])
+        rows.append(
+            "<tr>"
+            f"<td>{format_fact_name(entry['name'], entry.get('scholar_id'))}</td>"
+            f"<td align=\"right\">{format_metric_for_post(entry['num_pubs'], cached_int(previous, 'num_pubs'))}</td>"
+            f"<td align=\"right\">{format_metric_for_post(entry['citation_count'], cached_int(previous, 'citation_count'))}</td>"
+            f"<td align=\"right\">{format_metric_for_post(entry['citation_5_count'], cached_int(previous, 'citation_5_count'))}</td>"
+            f"<td align=\"right\">{format_metric_for_post(entry['cites_current_year'], cached_int(previous, 'cites_current_year'))}</td>"
+            f"<td align=\"right\">{format_metric_for_post(entry['h_index'], cached_int(previous, 'h_index'))}</td>"
+            f"<td align=\"right\">{format_metric_for_post(entry['h5_index'], cached_int(previous, 'h5_index'))}</td>"
+            "</tr>"
+        )
+
+    return f"{header}{''.join(rows)}</tbody></table>"
 
 
 def format_fact_name(name: str, scholar_id: str | None) -> str:
@@ -352,8 +396,10 @@ def create_table_from_results(results: list[dict], title: str, console: Console)
     console.print(f"\n{title}", style="bold magenta")
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Name", justify="left")
+    table.add_column("#Publications", justify="right")
     table.add_column("Citations", justify="right")
     table.add_column("Citations (5 years)", justify="right")
+    table.add_column("Citations (current year)", justify="right")
     table.add_column("H-Index", justify="right")
     table.add_column("H5-Index", justify="right")
     table.add_column("Self-Citations", justify="right")
@@ -362,8 +408,10 @@ def create_table_from_results(results: list[dict], title: str, console: Console)
     for entry in results:
         table.add_row(
             entry.get("name", ""),
+            str(entry.get("num_pubs", 0)),
             str(entry.get("citation_count", 0)),
             str(entry.get("citation_5_count", 0)),
+            str(entry.get("cites_current_year", 0)),
             str(entry.get("h_index", 0)),
             str(entry.get("h5_index", 0)),
             str(entry.get("self_citations", 0)),

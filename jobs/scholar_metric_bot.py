@@ -13,16 +13,31 @@ from libs.scholar_metrics import ScholarMetricsBot
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the scholar metrics bot.")
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--force",
         action="store_true",
         help="Ignore cache age and fetch fresh metrics for all scholars now.",
+    )
+    mode_group.add_argument(
+        "--force-cache",
+        action="store_true",
+        help="Use only cached metrics (no Google Scholar queries), even if cache age is expired.",
+    )
+    parser.add_argument(
+        "--force-post",
+        action="store_true",
+        help="Always send the webhook message, even when data was read from cache and unchanged.",
     )
     args = parser.parse_args()
 
     log_path = configure_job_logging("scholar_metric_bot")
     logging.info("Writing combined CLI log to %s", log_path)
-    ScholarMetricsBot(force_refresh=args.force).run()
+    ScholarMetricsBot(
+        force_refresh=args.force,
+        force_cache=args.force_cache,
+        force_post=args.force_post,
+    ).run()
 
 
 if __name__ == "__main__":

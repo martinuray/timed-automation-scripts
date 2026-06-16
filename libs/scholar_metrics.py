@@ -92,7 +92,7 @@ def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
     publications = author.get('publications', [])
     num_pubs = len(publications)
 
-    for pub in author.get('publications', []):
+    for pub in publications:
         break # till strategy on how to handle huge requests
         try:
             pub_filled = cast(dict[str, Any], run_with_retry("Publication fill", lambda: scholarly.fill(pub), retries=2))
@@ -269,6 +269,9 @@ def format_fact_value(entry: dict, previous: dict[str, str] | None) -> str:
 
 
 def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -> str:
+    from datetime import datetime
+    current_year = datetime.now().year
+
     header = (
         "<table>"
         "<thead><tr>"
@@ -276,9 +279,9 @@ def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -
         "<th align=\"right\">#</th>"
         "<th align=\"right\">Citations</th>"
         "<th align=\"right\">Citations (5y)</th>"
-        "<th align=\"right\">Citations (current y)</th>"
-        "<th align=\"right\">H-Index</th>"
-        "<th align=\"right\">H5-Index</th>"
+        f"<th align=\"right\">Citations ({current_year})</th>"
+        "<th align=\"right\">H</th>"
+        "<th align=\"right\">H5</th>"
         "</tr></thead><tbody>"
     )
     rows: list[str] = []

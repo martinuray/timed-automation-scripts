@@ -23,7 +23,7 @@ WATCHLIST_CSV = REPO_ROOT / "data" / "scholars_watchlist.csv"
 SCHOLAR_METRICS_CONFIG_PATH = REPO_ROOT / "data" / "scholar_metrics.conf"
 CACHE_BASE = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
 OUT_CSV = CACHE_BASE / "timed-automation-scripts" / "scholar_metrics" / "scholars_metrics.csv"
-OUT_FIELDS = ["name", "num_pubs", "citation_count", "citation_5_count", "cites_current_year", "h_index", "h5_index"]
+OUT_FIELDS = ["name", "num_pubs", "citation_count", "citation_5_count", "cites_current_year", "h_index", "h5_index", "i10_index", "i10_5_index"]
 MAX_AGE = timedelta(hours=18, minutes=0)
 
 
@@ -142,6 +142,8 @@ def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
         "cites_current_year": cites_current_year,
         "h_index": author.get("hindex", 0),
         "h5_index": author.get("hindex5y", 0),
+        "i10_index": author.get("i10index", 0),
+        "i10_5_index": author.get("i10index5y", 0),
         'self_citations': self_citations,
         'cleaned_h_index': h_index(cleaned_cite_list),
     }
@@ -213,6 +215,8 @@ def coerce_snapshot_entry(row: dict[str, str]) -> dict[str, int | str]:
         "cites_current_year": int(row.get("cites_current_year", 0) or 0),
         "h_index": int(row.get("h_index", 0) or 0),
         "h5_index": int(row.get("h5_index", 0) or 0),
+        "i10_index": int(row.get("i10_index", 0) or 0),
+        "i10_5_index": int(row.get("i10_5_index", 0) or 0),
     }
 
 
@@ -264,7 +268,9 @@ def format_fact_value(entry: dict, previous: dict[str, str] | None) -> str:
         f"Citations (5 years): {format_metric_for_post(entry['citation_5_count'], cached_int(previous, 'citation_5_count'))} | "
         f"Citations (current year): {format_metric_for_post(entry['cites_current_year'], cached_int(previous, 'cites_current_year'))} | "
         f"H-Index: {format_metric_for_post(entry['h_index'], cached_int(previous, 'h_index'))} | "
-        f"H5-Index: {format_metric_for_post(entry['h5_index'], cached_int(previous, 'h5_index'))}"
+        f"H5-Index: {format_metric_for_post(entry['h5_index'], cached_int(previous, 'h5_index'))} | "
+        f"i10-Index: {format_metric_for_post(entry['i10_index'], cached_int(previous, 'i10_index'))} | "
+        f"i10-5-Index: {format_metric_for_post(entry['i10_5_index'], cached_int(previous, 'i10_5_index'))}"
     )
 
 
@@ -282,6 +288,8 @@ def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -
         f"<th align=\"right\">Citations ({current_year})</th>"
         "<th align=\"right\">H</th>"
         "<th align=\"right\">H5</th>"
+        "<th align=\"right\">i10</th>"
+        "<th align=\"right\">i10 (5y)</th>"
         "</tr></thead><tbody>"
     )
     rows: list[str] = []
@@ -296,6 +304,8 @@ def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -
             f"<td align=\"right\">{format_metric_for_post(entry['cites_current_year'], cached_int(previous, 'cites_current_year'))}</td>"
             f"<td align=\"right\">{format_metric_for_post(entry['h_index'], cached_int(previous, 'h_index'))}</td>"
             f"<td align=\"right\">{format_metric_for_post(entry['h5_index'], cached_int(previous, 'h5_index'))}</td>"
+            f"<td align=\"right\">{format_metric_for_post(entry['i10_index'], cached_int(previous, 'i10_index'))}</td>"
+            f"<td align=\"right\">{format_metric_for_post(entry['i10_5_index'], cached_int(previous, 'i10_5_index'))}</td>"
             "</tr>"
         )
 
@@ -405,6 +415,8 @@ def create_table_from_results(results: list[dict], title: str, console: Console)
     table.add_column("Citations (current year)", justify="right")
     table.add_column("H-Index", justify="right")
     table.add_column("H5-Index", justify="right")
+    table.add_column("i10-Index", justify="right")
+    table.add_column("i10-5-Index", justify="right")
     table.add_column("Self-Citations", justify="right")
     table.add_column("Cleaned H-Index", justify="right")
 
@@ -417,6 +429,8 @@ def create_table_from_results(results: list[dict], title: str, console: Console)
             str(entry.get("cites_current_year", 0)),
             str(entry.get("h_index", 0)),
             str(entry.get("h5_index", 0)),
+            str(entry.get("i10_index", 0)),
+            str(entry.get("i10_5_index", 0)),
             str(entry.get("self_citations", 0)),
             str(entry.get("cleaned_h_index", 0)),
         )

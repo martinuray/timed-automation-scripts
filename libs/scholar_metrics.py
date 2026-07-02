@@ -23,7 +23,7 @@ WATCHLIST_CSV = REPO_ROOT / "data" / "scholars_watchlist.csv"
 SCHOLAR_METRICS_CONFIG_PATH = REPO_ROOT / "data" / "scholar_metrics.conf"
 CACHE_BASE = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
 OUT_CSV = CACHE_BASE / "timed-automation-scripts" / "scholar_metrics" / "scholars_metrics.csv"
-OUT_FIELDS = ["name", "num_pubs", "citation_count", "citation_5_count", "cites_current_year", "h_index", "h5_index", "i10_index", "i10_5_index", "academic_age"]
+OUT_FIELDS = ["name", "num_pubs", "citation_count", "citation_5_count", "cites_current_year", "h_index", "h5_index", "i10_index", "i10_5_index", "m-quotient"]
 MAX_AGE = timedelta(hours=18, minutes=0)
 
 
@@ -153,7 +153,7 @@ def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
         "i10_5_index": author.get("i10index5y", 0),
         'self_citations': self_citations,
         'cleaned_h_index': h_index(cleaned_cite_list),
-        'academic_age': author.get("hindex", 0) / publication_duration_years if publication_duration_years > 0 else 0,
+        'm-quotient': author.get("hindex", 0) / publication_duration_years if publication_duration_years > 0 else 0,
     }
 
 
@@ -225,7 +225,7 @@ def coerce_snapshot_entry(row: dict[str, str]) -> dict[str, int | str | float]:
         "h5_index": int(row.get("h5_index", 0) or 0),
         "i10_index": int(row.get("i10_index", 0) or 0),
         "i10_5_index": int(row.get("i10_5_index", 0) or 0),
-        "academic_age": float(row.get("academic_age", 0) or 0),
+        "m-quotient": float(row.get("m-quotient", 0) or 0),
     }
 
 
@@ -299,14 +299,14 @@ def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -
         "<th align=\"right\">H5</th>"
         "<th align=\"right\">i10</th>"
         "<th align=\"right\">i10 (5y)</th>"
-        "<th align=\"right\">Acad. Age</th>"
+        "<th align=\"right\"><a href=\"https://en.wikipedia.org/wiki/Author-level_metrics#cite_ref-hirsch_1-2\">m-quotient</a></th>"
         "</tr></thead><tbody>"
     )
     rows: list[str] = []
     for entry in results:
         previous = baseline_snapshot.get(entry["name"])
-        academic_age_value = entry.get('academic_age', 0)
-        academic_age_str = f"{academic_age_value:.2f}" if academic_age_value else "0.00"
+        m_quotient_value = entry.get('m-quotient', 0)
+        m_quotient_str = f"{m_quotient_value:.2f}" if m_quotient_value else "0.00"
         rows.append(
             "<tr>"
             f"<td>{format_fact_name(entry['name'], entry.get('scholar_id'))}</td>"
@@ -318,7 +318,7 @@ def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -
             f"<td align=\"right\">{format_metric_for_post(entry['h5_index'], cached_int(previous, 'h5_index'))}</td>"
             f"<td align=\"right\">{format_metric_for_post(entry['i10_index'], cached_int(previous, 'i10_index'))}</td>"
             f"<td align=\"right\">{format_metric_for_post(entry['i10_5_index'], cached_int(previous, 'i10_5_index'))}</td>"
-            f"<td align=\"right\">{academic_age_str}</td>"
+            f"<td align=\"right\">{m_quotient_str}</td>"
             "</tr>"
         )
 
@@ -432,6 +432,7 @@ def create_table_from_results(results: list[dict], title: str, console: Console)
     table.add_column("i10-5-Index", justify="right")
     table.add_column("Self-Citations", justify="right")
     table.add_column("Cleaned H-Index", justify="right")
+    table.add_column("m-quotient", justify="right")
 
     for entry in results:
         table.add_row(
@@ -446,6 +447,7 @@ def create_table_from_results(results: list[dict], title: str, console: Console)
             str(entry.get("i10_5_index", 0)),
             str(entry.get("self_citations", 0)),
             str(entry.get("cleaned_h_index", 0)),
+            f"{entry.get('m-quotient', 0):.2f}" if entry.get('m-quotient') else "0.00",
         )
     console.print(table)
 

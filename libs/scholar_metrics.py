@@ -23,7 +23,7 @@ WATCHLIST_CSV = REPO_ROOT / "data" / "scholars_watchlist.csv"
 SCHOLAR_METRICS_CONFIG_PATH = REPO_ROOT / "data" / "scholar_metrics.conf"
 CACHE_BASE = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
 OUT_CSV = CACHE_BASE / "timed-automation-scripts" / "scholar_metrics" / "scholars_metrics.csv"
-OUT_FIELDS = ["name", "num_pubs", "citation_count", "citation_5_count", "cites_current_year", "h_index", "h5_index", "i10_index", "i10_5_index"]
+OUT_FIELDS = ["name", "num_pubs", "citation_count", "citation_5_count", "cites_current_year", "h_index", "h5_index", "i10_index", "i10_5_index", "academic_age"]
 MAX_AGE = timedelta(hours=18, minutes=0)
 
 
@@ -92,6 +92,13 @@ def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
     publications = author.get('publications', [])
     num_pubs = len(publications)
 
+
+    # academic age
+    first_pub_year = min([int(publication['bib']['pub_year']) for publication in publications])
+    current_year = datetime.now().year
+
+    publication_duration_years = current_year - first_pub_year
+
     for pub in publications:
         break # till strategy on how to handle huge requests
         try:
@@ -146,6 +153,7 @@ def fetch_scholar_metrics(scholar_id: str) -> dict[str, int]:
         "i10_5_index": author.get("i10index5y", 0),
         'self_citations': self_citations,
         'cleaned_h_index': h_index(cleaned_cite_list),
+        'academic_age': author.get("hindex", 0) / publication_duration_years if publication_duration_years > 0 else 0,
     }
 
 
@@ -206,7 +214,7 @@ def is_snapshot_expired(path: Path, max_age: timedelta = MAX_AGE) -> bool:
     return False
 
 
-def coerce_snapshot_entry(row: dict[str, str]) -> dict[str, int | str]:
+def coerce_snapshot_entry(row: dict[str, str]) -> dict[str, int | str | float]:
     return {
         "name": row["name"],
         "num_pubs": int(row.get("num_pubs", 0) or 0),
@@ -217,6 +225,7 @@ def coerce_snapshot_entry(row: dict[str, str]) -> dict[str, int | str]:
         "h5_index": int(row.get("h5_index", 0) or 0),
         "i10_index": int(row.get("i10_index", 0) or 0),
         "i10_5_index": int(row.get("i10_5_index", 0) or 0),
+        "academic_age": float(row.get("academic_age", 0) or 0),
     }
 
 
@@ -290,11 +299,14 @@ def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -
         "<th align=\"right\">H5</th>"
         "<th align=\"right\">i10</th>"
         "<th align=\"right\">i10 (5y)</th>"
+        "<th align=\"right\">Acad. Age</th>"
         "</tr></thead><tbody>"
     )
     rows: list[str] = []
     for entry in results:
         previous = baseline_snapshot.get(entry["name"])
+        academic_age_value = entry.get('academic_age', 0)
+        academic_age_str = f"{academic_age_value:.2f}" if academic_age_value else "0.00"
         rows.append(
             "<tr>"
             f"<td>{format_fact_name(entry['name'], entry.get('scholar_id'))}</td>"
@@ -306,6 +318,7 @@ def build_metrics_html_table(results: list[dict], baseline_snapshot: Snapshot) -
             f"<td align=\"right\">{format_metric_for_post(entry['h5_index'], cached_int(previous, 'h5_index'))}</td>"
             f"<td align=\"right\">{format_metric_for_post(entry['i10_index'], cached_int(previous, 'i10_index'))}</td>"
             f"<td align=\"right\">{format_metric_for_post(entry['i10_5_index'], cached_int(previous, 'i10_5_index'))}</td>"
+            f"<td align=\"right\">{academic_age_str}</td>"
             "</tr>"
         )
 
